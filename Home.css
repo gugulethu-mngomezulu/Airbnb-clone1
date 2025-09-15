@@ -1,0 +1,18 @@
+.home__section {
+    display: flex;
+    padding: 30px;
+  }
+
+  /* === Responsive Adjustments for .home__section === */
+@media (max-width: 768px) {
+  .home__section {
+    flex-direction: column;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .home__section {
+    padding: 15px;
+  }
+}

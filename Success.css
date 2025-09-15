@@ -1,0 +1,63 @@
+/* src/Success.css */
+.success-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background-color: #f7f7f7;
+}
+
+.success-card {
+  background: white;
+  padding: 40px;
+  border-radius: 12px;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+
+.success-card h1 {
+  color: #2ecc71;
+  margin-bottom: 20px;
+}
+
+.success-card p {
+  font-size: 18px;
+  margin-bottom: 30px;
+}
+
+.back-home-btn {
+  text-decoration: none;
+  background-color: #ff385c;
+  color: white;
+  padding: 10px 25px;
+  border-radius: 8px;
+  font-weight: bold;
+  transition: background-color 0.3s ease;
+}
+
+.back-home-btn:hover {
+  background-color: #e52e50;
+}
+
+/* Responsive Design for Small Screens */
+@media (max-width: 480px) {
+  .success-card {
+    padding: 20px;
+    margin: 0 15px;
+  }
+
+  .success-card h1 {
+    font-size: 24px;
+  }
+
+  .success-card p {
+    font-size: 16px;
+  }
+
+  .back-home-btn {
+    padding: 10px 20px;
+    font-size: 14px;
+    width: 100%;
+    display: inline-block;
+  }
+}
