@@ -1,89 +1,181 @@
-# Airbnb Clone — frontend and optional Gemini finder
+# Airbnb Clone
 
-An **Airbnb.co.za-inspired** South African stay discovery portfolio, rebuilt with **React 19, TypeScript, Vite, and Tailwind CSS 4**. The design uses a coral-accented header, rounded search, destination carousels and compact property cards, with Airbnb Clone branding and an explicit independent-demo disclaimer.
+A South African stay discovery portfolio built with React 19, TypeScript, Vite and Tailwind CSS 4. The Python backend uses FastAPI, PostgreSQL 17, SQLAlchemy 2 and Alembic. A separate Node adapter supports optional Gemini search.
 
-## Run locally
+This is an independent demo, not affiliated with Airbnb. Listings, ratings, hosts and prices are fictional. Photos come from Unsplash and do not represent verified properties. There is no authentication, payment processing, booking or live availability.
 
-Use Node.js 22.12+ or a supported newer LTS release and npm. From PowerShell:
+## Current status
 
-```powershell
-cd C:\Users\User\Airbnb-clone1
+- The frontend supports search, filters, sorting, saved stays, property details and date-based price estimates.
+- PostgreSQL has a migrated `stays` table and a seed fixture containing the same 20 stays as the frontend.
+- FastAPI currently exposes `GET /health`. It checks that the API is running, not database connectivity.
+- Stay endpoints and frontend API integration are not implemented yet. The frontend still reads `src/data/stays.ts` and filters locally.
+
+## Requirements
+
+- Ubuntu or WSL Ubuntu with Bash.
+- Node.js 22.12+ and npm.
+- Python 3.14, which is the version tested locally, with `venv` and pip available.
+- Docker with the Compose plugin. For WSL, enable Ubuntu integration in Docker Desktop and confirm `docker compose version` works inside Ubuntu.
+
+Run the following commands from the repository root unless a step says otherwise.
+
+## Local setup
+
+### 1. Configure the environment
+
+For a fresh clone:
+
+```bash
+cp -n .env.example .env
+```
+
+If `.env` already exists, keep it and add any missing settings from `.env.example`. Set `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD`, then update `DATABASE_URL` to match them. Use the `postgresql+psycopg://` scheme and `127.0.0.1:5433` for the host and port. URL-encode any special characters in the URL's username and password.
+
+Keep `GEMINI_ENABLED=false` unless you intend to use the optional AI search. A Gemini key is not needed for the database or regular browsing.
+
+`.env` is ignored by Git. `.env.example` contains placeholders only. Never put database credentials or API keys in frontend code or variables prefixed with `VITE_`.
+
+### 2. Start PostgreSQL
+
+```bash
+docker compose config --quiet
+docker compose up -d --wait postgres
+docker compose ps postgres
+```
+
+PostgreSQL is exposed only on `127.0.0.1:5433`. It uses port `5432` inside its container. The named volume keeps database data between container restarts. The healthcheck waits for PostgreSQL to accept connections.
+
+The first migration enables `pg_trgm` for substring-search indexing. The database user needs permission to create that extension; the local Compose user has it.
+
+### 3. Install Python dependencies
+
+```bash
+python3 -m venv api/.venv
+source api/.venv/bin/activate
+python -m pip install -r api/requirements-dev.txt
+```
+
+The development requirements include the runtime dependencies, pytest and Ruff. Dependencies are installed into the virtual environment, not system Python.
+
+### 4. Migrate and seed
+
+With the virtual environment active:
+
+```bash
+cd api
+alembic upgrade head
+alembic check
+python seed.py
+```
+
+The seed validates the JSON fixture and inserts all rows in one transaction. Running it again skips existing IDs and preserves local edits. It does not overwrite or delete stays.
+
+### 5. Run FastAPI
+
+From `api/`, with the virtual environment active:
+
+```bash
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```bash
+curl --fail http://127.0.0.1:8000/health
+```
+
+Expected response: `{"status":"ok"}`. API documentation is available at http://127.0.0.1:8000/docs.
+
+### 6. Run the frontend
+
+In another terminal, from the repository root:
+
+```bash
 npm ci
 npm run dev
 ```
 
-Open the local address printed by Vite (normally http://127.0.0.1:5173). If dependencies are already installed, just run `npm run dev`.
+Open the address printed by Vite, normally http://127.0.0.1:5173. The frontend currently works without FastAPI because it still uses local listing data.
+
+When using WSL, install and run Node dependencies inside WSL. Do not reuse a `node_modules` directory installed on Windows: native packages such as Rollup are platform-specific.
+
+## Optional Gemini search
+
+The Node adapter runs separately from FastAPI. Add a server-only `GEMINI_API_KEY` to your local `.env`, choose `GEMINI_MODEL`, and set `GEMINI_ENABLED=true` only after checking quota and billing.
+
+From the repository root:
+
+```bash
+npm run dev:api
+```
+
+This command starts the Gemini adapter on `127.0.0.1:8787`, not the Python API. Vite proxies `/api/ai-search` to it. In the UI, use **Try AI search**, submit a description, review the suggested filters, and apply them.
+
+Regular browsing does not call Gemini. Automated adapter tests mock provider responses and do not use paid API calls. See [docs/GEMINI_SETUP.md](docs/GEMINI_SETUP.md) for details.
+
+## Architecture
+
+```text
+Browser
+  |
+  v
+React + Vite (127.0.0.1:5173)
+  |-- listings and local filters --> src/data/stays.ts + src/lib/stays.ts
+  |-- saved IDs -----------------> browser local storage
+  `-- optional /api/ai-search ---> Node Gemini adapter (127.0.0.1:8787)
+                                      `--> Gemini API, when enabled
+
+FastAPI (127.0.0.1:8000, not connected to the frontend yet)
+  |-- GET /health
+  `-- SQLAlchemy engine/session setup
+              |
+              v
+      PostgreSQL 17 (127.0.0.1:5433)
+          ^                 ^
+          |                 |
+   Alembic migrations   seed.py <-- fixtures/stays.json
+```
+
+- `src/types.ts`: frontend data contracts.
+- `src/components/`: browsing, property details and AI search UI.
+- `src/lib/stays.ts`: pure filtering, date, pricing and saved-data helpers.
+- `api/app/`: FastAPI app, environment settings, database sessions and Stay model.
+- `api/migrations/`: versioned PostgreSQL schema changes.
+- `api/fixtures/stays.json`: the expanded 20-stay fixture.
+- `api/seed.py`: validated, idempotent database seed.
+- `api/tests/`: configuration, health, schema, migration and seed tests.
+- `server/`: optional Gemini adapter and mocked tests.
+
+Hash-based property navigation does not require server-side route rewrites. The SQLAlchemy engine is created at API startup and disposed on shutdown. Database sessions are closed after each request that uses the session dependency.
 
 ## Checks
 
-```powershell
+From the repository root:
+
+```bash
 npm run typecheck
 npm run lint
 npm test
 npm run build
-npm run preview
 ```
 
-The project uses strict TypeScript, ESLint, Vitest and Node's built-in test runner. The 98 automated tests (72 frontend/helper/static-render, 26 backend) use mocked Gemini responses; no live AI request is made. Browser interactions are checked separately.
+With PostgreSQL running and the Python virtual environment active:
 
-## Optional Gemini setup
+```bash
+cd api
+python -m pytest
+ruff check .
+ruff format --check .
+alembic check
+```
 
-A blank, Git-ignored `.env` was created with `GEMINI_API_KEY=`, `GEMINI_MODEL=gemini-3.5-flash-lite` and `GEMINI_ENABLED=false`. Add your key locally and explicitly enable it only after checking your project's quota and billing. Never use a `VITE_` prefix or share the key in chat.
+The seed integration test uses the configured database with a transaction rollback. Its temporary rows are not committed. Run migrations before running the Python suite.
 
-Start the local API in a separate terminal with `npm run dev:api`. The frontend uses Vite's proxy to reach it on loopback port 8787. Use **Try AI search → Find with Gemini → review → Apply AI filters**. Regular search does not need a key or the API.
+At desktop and mobile widths, check search, combined filters, sorting, saved-stay persistence, property navigation, date validation, keyboard access and the browser console. No reservation is created by the price estimate.
 
-See **[docs/GEMINI_SETUP.md](docs/GEMINI_SETUP.md)** for exact setup, model/API details, limits, privacy, testing and security findings. Live Gemini access has not been tested.
+## Security notes
 
-## Frontend features
+Potential credentials were found in the original Git commit. Removing files does not revoke keys or remove them from history. Rotate or revoke exposed credentials and review provider restrictions. This branch does not rewrite Git history.
 
-- Search-first responsive browsing page with 20 fictional South African stays.
-- Destination rows with scroll controls; category/search/sort selections switch to a filtered grid.
-- Destination/name/province search, guest capacity, category and price filters.
-- Sorting by nightly price or rating.
-- Saved stays in this browser's local storage; gracefully degrades to session-only state when storage fails.
-- Hash-based property detail links, example photo gallery, amenities and mock hosts.
-- Search date dialog with Apply/Clear and cancellation behaviour; date/guest choices transfer to property details.
-- Date-based cost estimate with shared 1–30-night validation, fictional cleaning fee and 8% service fee. Cards show nightly prices without dates, or full example totals with dates.
-- Mobile bottom navigation, an accessible navigation disclosure, and host/currency demo information dialogs. Experiences and services are explicitly unavailable.
-- Empty states, missing-route page, keyboard focus styles, reduced-motion styles and image fallback.
-- Optional Gemini filter extraction with explicit confirmation, safe errors and normal-search fallback.
-
-All listings, ratings, hosts and prices are **mock data**. Photography is illustrative and loaded from Unsplash, not verified images of actual properties. External images require connectivity; failures show a local placeholder. No live availability is checked.
-
-## Structure
-
-- `index.html` → `src/main.tsx` → `src/App.tsx`: entry and page coordination.
-- `src/components/`: shared UI, property cards and details.
-- `src/data/stays.ts`: typed fictional listings.
-- `src/types.ts`: shared data contracts.
-- `src/lib/stays.ts`: pure search, date, pricing and saved-data helpers.
-- `src/lib/stays.test.ts`: unit tests.
-- `src/styles.css`: Tailwind import, design tokens and component styling.
-- `src/components/AiSearch.tsx`, `src/lib/ai.ts`: opt-in AI UI and validated filter application.
-- `server/`: new loopback-only Gemini adapter, prompt/schema and mocked tests.
-
-Hash navigation avoids server rewrite requirements. Vite loads the `src/` entry. The 38 unused root-level legacy JavaScript/CSS files—including the old backend, Firebase, login and payment code—were removed with approval. Their committed versions remain recoverable from Git history.
-
-## Scope and safety
-
-The frontend now has an optional **local-only Gemini API adapter**. There is no authentication, real booking, payment integration, or public deployment. Gemini receives a user description only when AI is enabled and explicitly submitted. Never put API keys into client-side code. Deleting legacy files does not remove their contents from Git history or revoke credentials.
-
-**Security warning:** a redacted history scan found potential credentials in the original commit's `server.js:7` (Stripe token) and `firebase.js:5` (Google API key). Revoke/rotate any real Stripe secret; review Google key restrictions and Firebase rules. Values were not printed, and Git history was not rewritten.
-
-This is an independent portfolio demo, not affiliated with Airbnb.
-
-## Manual review checklist
-
-At desktop (1280px) and mobile (390px):
-1. Search Cape Town; clear the search and try an unknown location.
-2. Combine category, guest and budget filters; change sorting.
-3. Save a stay, open Saved stays, reload and verify persistence.
-4. Select dates in search, apply and search; verify date/guest values transfer to details. Cancel edited dates and check the previous choice remains. Try reversed dates and over 30 nights.
-5. Preview a valid estimate and confirm it explicitly says nothing is booked.
-6. Check keyboard navigation, browser Back, and the browser console.
-
-See `docs/FRONTEND_REVIEW.md` for the code walkthrough, review findings and testing limitations.
-
-## When to review code
-
-Review each small working slice, review again before a commit, and request an independent review before merging. Check correctness first, then safety, edge cases, accessibility, tests and readability. Automated checks help, but do not replace reading the diff or using the app.
+Do not commit `.env`, virtual environments, `node_modules`, build output or caches.
