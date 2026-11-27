@@ -32,6 +32,8 @@ cp -n .env.example .env
 
 If `.env` already exists, keep it and add any missing settings from `.env.example`. Set `POSTGRES_DB`, `POSTGRES_USER` and `POSTGRES_PASSWORD`, then update `DATABASE_URL` to match them. Use the `postgresql+psycopg://` scheme and `127.0.0.1:5433` for the host and port. URL-encode any special characters in the URL's username and password.
 
+For database tests, set `TEST_DATABASE_URL` to a separate database on the same PostgreSQL service, with a name ending in `_test`. The local setup uses `${POSTGRES_DB}_test`; keep its URL's username, password, host and port consistent with the database settings. Do not point it at your application database.
+
 Keep `GEMINI_ENABLED=false` unless you intend to use the optional AI search. A Gemini key is not needed for the database or regular browsing.
 
 `.env` is ignored by Git. `.env.example` contains placeholders only. Never put database credentials or API keys in frontend code or variables prefixed with `VITE_`.
@@ -178,7 +180,7 @@ FastAPI (127.0.0.1:8000, not connected to the frontend yet)
 - `api/migrations/`: versioned PostgreSQL schema changes.
 - `api/fixtures/stays.json`: the expanded 20-stay fixture.
 - `api/seed.py`: validated, idempotent database seed.
-- `api/tests/`: configuration, health, schema, migration and seed tests.
+- `api/tests/`: configuration, health, schema, migration, seed and endpoint tests, including real PostgreSQL integration tests.
 - `server/`: optional Gemini adapter and mocked tests.
 
 Hash-based property navigation does not require server-side route rewrites. The SQLAlchemy engine is created at API startup and disposed on shutdown. Database sessions are closed after each request that uses the session dependency.
@@ -194,7 +196,13 @@ npm test
 npm run build
 ```
 
-With PostgreSQL running and the Python virtual environment active:
+With PostgreSQL running, create the test database once from the repository root:
+
+```bash
+docker compose exec postgres sh -c 'createdb --username="$POSTGRES_USER" --owner="$POSTGRES_USER" "${POSTGRES_DB}_test"'
+```
+
+Set `TEST_DATABASE_URL` in `.env` to this database. An existing test database does not need to be created again. Then, with the Python virtual environment active:
 
 ```bash
 cd api
@@ -204,7 +212,9 @@ ruff format --check .
 alembic check
 ```
 
-The seed integration test uses the configured database with a transaction rollback. Its temporary rows are not committed. Run migrations before running the Python suite.
+The database-backed tests require an explicit `TEST_DATABASE_URL`; they do not fall back to `DATABASE_URL`. The first database fixture applies Alembic migrations to the test database. Its name must end in `_test`, and its `stays` table must contain no persisted rows. If rows exist, the suite stops rather than deleting them.
+
+Each database test runs inside an outer transaction that is rolled back afterward. API request sessions use savepoints, so even a session commit cannot persist test data. Seed and endpoint integration tests share this setup. The development database and its seeded stays are not used by these tests. `alembic check` in the command block above still checks the application database.
 
 At desktop and mobile widths, check search, combined filters, sorting, saved-stay persistence, property navigation, date validation, keyboard access and the browser console. No reservation is created by the price estimate.
 
