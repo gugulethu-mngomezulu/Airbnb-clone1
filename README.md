@@ -8,8 +8,8 @@ This is an independent demo, not affiliated with Airbnb. Listings, ratings, host
 
 - The frontend supports search, filters, sorting, saved stays, property details and date-based price estimates.
 - PostgreSQL has a migrated `stays` table and a seed fixture containing the same 20 stays as the frontend.
-- FastAPI currently exposes `GET /health`. It checks that the API is running, not database connectivity.
-- Stay endpoints and frontend API integration are not implemented yet. The frontend still reads `src/data/stays.ts` and filters locally.
+- FastAPI exposes `GET /health`, `GET /stays` and `GET /stays/{id}`. Stay filtering and sorting run in PostgreSQL. The health endpoint checks that the API is running, not database connectivity.
+- Frontend API integration is not implemented yet. The frontend still reads `src/data/stays.ts` and filters locally.
 
 ## Requirements
 
@@ -100,6 +100,39 @@ Open the address printed by Vite, normally http://127.0.0.1:5173. The frontend c
 
 When using WSL, install and run Node dependencies inside WSL. Do not reuse a `node_modules` directory installed on Windows: native packages such as Rollup are platform-specific.
 
+## Stay API
+
+With FastAPI running:
+
+```bash
+curl --fail http://127.0.0.1:8000/stays
+curl --fail --get http://127.0.0.1:8000/stays \
+  --data-urlencode 'destination=Cape Town' \
+  --data-urlencode 'guests=4' \
+  --data-urlencode 'category=Coastal' \
+  --data-urlencode 'min_price=1000' \
+  --data-urlencode 'max_price=3000' \
+  --data-urlencode 'sort=price-low'
+curl --fail http://127.0.0.1:8000/stays/atlantic-hideaway
+```
+
+`GET /stays` returns a JSON array. Each stay has the same fields as the frontend `Stay` type, including JSON numbers for price, rating and bathrooms.
+
+| Query parameter | Default | Meaning |
+| --- | --- | --- |
+| `destination` | Empty | Case-insensitive substring search across name, location and province; up to 100 characters. |
+| `guests` | `1` | Minimum guest capacity, from 1 to 16. |
+| `category` | `All stays` | `Coastal`, `Cabins`, `City escapes`, `Countryside` or `Unique stays`. |
+| `min_price` | `0` | Inclusive minimum nightly price. |
+| `max_price` | No limit | Inclusive maximum nightly price. |
+| `sort` | `recommended` | `recommended`, `price-low`, `price-high` or `rating`. |
+
+Price bounds must be finite, non-negative values with at most eight whole-number digits and two decimal places. The minimum cannot exceed the maximum. Blank destination searches and `All stays` do not restrict results. Search characters such as `%` and `_` are treated literally, not as SQL wildcards.
+
+`recommended` uses ID order, not a ranking algorithm. Price and rating sorts use ID as a tie-breaker. This differs from the frontend's current mock-array order. Saved-only filtering stays in the browser.
+
+An unmatched search returns `[]`. A missing stay ID returns 404. Invalid query parameters, including unknown parameter names, return 422.
+
 ## Optional Gemini search
 
 The Node adapter runs separately from FastAPI. Add a server-only `GEMINI_API_KEY` to your local `.env`, choose `GEMINI_MODEL`, and set `GEMINI_ENABLED=true` only after checking quota and billing.
@@ -128,6 +161,7 @@ React + Vite (127.0.0.1:5173)
 
 FastAPI (127.0.0.1:8000, not connected to the frontend yet)
   |-- GET /health
+  |-- GET /stays and GET /stays/{id}
   `-- SQLAlchemy engine/session setup
               |
               v
@@ -140,7 +174,7 @@ FastAPI (127.0.0.1:8000, not connected to the frontend yet)
 - `src/types.ts`: frontend data contracts.
 - `src/components/`: browsing, property details and AI search UI.
 - `src/lib/stays.ts`: pure filtering, date, pricing and saved-data helpers.
-- `api/app/`: FastAPI app, environment settings, database sessions and Stay model.
+- `api/app/`: FastAPI app, environment settings, database sessions, Stay model, query validation and stay routes.
 - `api/migrations/`: versioned PostgreSQL schema changes.
 - `api/fixtures/stays.json`: the expanded 20-stay fixture.
 - `api/seed.py`: validated, idempotent database seed.
