@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Category, Filters, SortOrder, StayDates } from './types'
-import { categories, defaultFilters, stays } from './data/stays'
-import { filterStays, formatPrice, getDateError, getNights, groupStaysByProvince, parseSavedIds } from './lib/stays'
+import { categories, defaultFilters } from './lib/stay-filters'
+import { formatPrice, getDateError, getNights, groupStaysByProvince, parseSavedIds } from './lib/stays'
+import { buildStayUrl, buildStaysUrl, fetchStay, fetchStays, stayIdFromHash } from './lib/stays-api'
+import { useStayResource } from './hooks/useStayResource'
+import { StayRequestState } from './components/StayRequestState'
 import { Header } from './components/Header'
 import { Icon } from './components/Icon'
 import type { IconName } from './components/Icon'
@@ -17,12 +20,11 @@ const categoryIcons: Record<Category, IconName> = {
   'All stays': 'home', Coastal: 'waves', Cabins: 'tree',
   'City escapes': 'city', Countryside: 'sun', 'Unique stays': 'spark',
 }
-const collections = groupStaysByProvince(stays)
 const emptyDates: StayDates = { checkIn: '', checkOut: '' }
 
 function readSaved() {
   try {
-    return parseSavedIds(localStorage.getItem(STORAGE_KEY), stays.map((stay) => stay.id))
+    return parseSavedIds(localStorage.getItem(STORAGE_KEY))
   } catch {
     return []
   }
@@ -39,9 +41,14 @@ export default function App() {
   const [showFilters, setShowFilters] = useState(false)
   const [notice, setNotice] = useState('')
   const resultsRef = useRef<HTMLElement>(null)
-  const results = filterStays(stays, filters, savedIds)
-  const selectedStay = stays.find((stay) => route === '#/stay/' + stay.id)
   const homeRoute = route === '#/' || route === '#'
+  const stayId = stayIdFromHash(route)
+  const listing = useStayResource(homeRoute ? buildStaysUrl(filters) : null, fetchStays)
+  const detail = useStayResource(stayId ? buildStayUrl(stayId) : null, fetchStay)
+  const stays = listing.status === 'success' ? listing.data : []
+  const results = filters.savedOnly ? stays.filter((stay) => savedIds.includes(stay.id)) : stays
+  const collections = groupStaysByProvince(results)
+  const selectedStay = detail.status === 'success' ? detail.data : null
   const nights = getDateError(appliedDates.checkIn, appliedDates.checkOut) ? null : getNights(appliedDates.checkIn, appliedDates.checkOut)
   const hasFilters = Boolean(filters.destination || filters.guests > 1 || filters.maxPrice !== defaultFilters.maxPrice
     || filters.category !== 'All stays' || filters.savedOnly || filters.sort !== 'recommended')
@@ -117,7 +124,7 @@ export default function App() {
     </div>
     {notice && <p className="storage-notice page-width" role="status">{notice}</p>}
 
-    {homeRoute ? <main id="main-content" className="page-width browse-page" ref={resultsRef}>
+    {homeRoute ? <main id="main-content" className="page-width browse-page" ref={resultsRef} aria-busy={listing.status === 'loading'}>
       <h1 className="sr-only">Find your next stay in South Africa</h1>
       <AiSearch onApply={(criteria) => {
         const next = criteriaToFilters(criteria)
@@ -148,7 +155,8 @@ export default function App() {
         <button className="text-button" onClick={clearFilters}>Reset filters</button>
       </div>}
       <div className="results-toolbar">
-        <p aria-live="polite"><strong>{results.length} {results.length === 1 ? 'home' : 'homes'}</strong>
+        <p aria-live="polite"><strong>{listing.status === 'success' ? results.length + (results.length === 1 ? ' home' : ' homes')
+          : listing.status === 'error' ? 'Homes unavailable' : 'Loading homes...'}</strong>
           {filters.destination ? ' in “' + filters.destination + '”' : ' · Demo collection'}
           {nights ? ' · Estimates for ' + nights + ' night' + (nights !== 1 ? 's' : '') + ', including example fees' : ''}
         </p>
@@ -165,7 +173,10 @@ export default function App() {
         </div>
       </div>
 
-      {!hasFilters ? collections.map((collection) => <PropertySection key={collection.province} {...collection}
+      {listing.status === 'loading' || listing.status === 'error'
+        ? <StayRequestState loading={listing.status === 'loading'}
+          message={listing.status === 'error' ? listing.message : undefined} onRetry={listing.retry} />
+        : !hasFilters && results.length > 0 ? collections.map((collection) => <PropertySection key={collection.province} {...collection}
         savedIds={savedIds} nights={nights} onSave={toggleSaved} onSeeAll={showCollection} />)
         : results.length > 0 ? <section className="filtered-section" aria-labelledby="results-heading">
           <div className="section-heading"><h2 id="results-heading">{filters.savedOnly ? 'Your saved homes' : filters.destination ? 'Stays in ' + filters.destination : 'Homes for your next getaway'}</h2>
@@ -183,7 +194,11 @@ export default function App() {
           {filters.savedOnly && savedIds.length > 0 && <button className="text-button" onClick={() => showBrowse(false)}>Browse all homes</button>}
         </section>}
       <p className="listing-disclaimer">Portfolio demo: all homes, hosts, prices, ratings, and reviews are fictional. Photos are illustrative.</p>
-    </main> : selectedStay ? <StayDetails key={selectedStay.id} stay={selectedStay} saved={savedIds.includes(selectedStay.id)}
+    </main> : stayId && (detail.status === 'loading' || detail.status === 'error')
+      ? <main id="main-content" className="page-width" aria-busy={detail.status === 'loading'}>
+        <StayRequestState detail loading={detail.status === 'loading'}
+          message={detail.status === 'error' ? detail.message : undefined} onRetry={detail.retry} />
+      </main> : selectedStay ? <StayDetails key={selectedStay.id} stay={selectedStay} saved={savedIds.includes(selectedStay.id)}
       onSave={toggleSaved} initialDates={appliedDates} initialGuests={filters.guests} />
       : route === '#/about' ? <main id="main-content" className="page-width about-page">
         <span className="demo-pill">FRONTEND PORTFOLIO</span>

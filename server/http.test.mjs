@@ -29,6 +29,21 @@ test('API returns sanitized JSON with no-store and no-sniff headers', async () =
   })
 })
 
+test('API accepts only the current local development and preview origins', async () => {
+  await withServer({ search: async () => ({ criteria: {}, cached: false }) }, async (base) => {
+    for (const origin of ['http://127.0.0.1:5180', 'http://localhost:5180', 'http://127.0.0.1:4173', 'http://localhost:4173']) {
+      assert.equal((await post(base, { headers: { 'Content-Type': 'application/json', Origin: origin } })).status, 200)
+    }
+  })
+})
+
+test('API rejects the old port now used by another project', async () => {
+  await withServer({ search: async () => assert.fail('must not call AI') }, async (base) => {
+    const response = await post(base, { headers: { 'Content-Type': 'application/json', Origin: 'http://127.0.0.1:5173' } })
+    assert.equal(response.status, 403)
+  })
+})
+
 test('API rejects foreign origins before reaching the service', async () => {
   await withServer({ search: async () => assert.fail('must not call AI') }, async (base) => {
     const response = await post(base, { headers: { 'Content-Type': 'application/json', Origin: 'https://attacker.example' } })

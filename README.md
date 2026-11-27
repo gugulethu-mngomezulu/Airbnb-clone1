@@ -9,7 +9,7 @@ This is an independent demo, not affiliated with Airbnb. Listings, ratings, host
 - The frontend supports search, filters, sorting, saved stays, property details and date-based price estimates.
 - PostgreSQL has a migrated `stays` table and a seed fixture containing the same 20 stays as the frontend.
 - FastAPI exposes `GET /health`, `GET /stays` and `GET /stays/{id}`. Stay filtering and sorting run in PostgreSQL. The health endpoint checks that the API is running, not database connectivity.
-- Frontend API integration is not implemented yet. The frontend still reads `src/data/stays.ts` and filters locally.
+- The frontend fetches listings and detail pages from FastAPI, with loading, error and retry states. Saved IDs and date-based estimates stay in the browser. Mock listings are used only by tests.
 
 ## Requirements
 
@@ -78,16 +78,16 @@ The seed validates the JSON fixture and inserts all rows in one transaction. Run
 From `api/`, with the virtual environment active:
 
 ```bash
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8011
 ```
 
 In another terminal:
 
 ```bash
-curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:8011/health
 ```
 
-Expected response: `{"status":"ok"}`. API documentation is available at http://127.0.0.1:8000/docs.
+Expected response: `{"status":"ok"}`. API documentation is available at http://127.0.0.1:8011/docs.
 
 ### 6. Run the frontend
 
@@ -98,7 +98,9 @@ npm ci
 npm run dev
 ```
 
-Open the address printed by Vite, normally http://127.0.0.1:5173. The frontend currently works without FastAPI because it still uses local listing data.
+Open http://127.0.0.1:5180. Keep FastAPI running in its own terminal. Vite forwards `/api/stays` requests to `127.0.0.1:8011`, removing the `/api` prefix. The more specific `/api/ai-search` route still goes to the Node adapter on port `8787`.
+
+Ports `5180` and `8011` keep this project separate from other local services. Listing requests time out after ten seconds and can be retried. Filter changes cancel outdated requests. A network failure is shown as an error, not an empty result or a missing stay. There is no mock-data fallback.
 
 When using WSL, install and run Node dependencies inside WSL. Do not reuse a `node_modules` directory installed on Windows: native packages such as Rollup are platform-specific.
 
@@ -107,15 +109,15 @@ When using WSL, install and run Node dependencies inside WSL. Do not reuse a `no
 With FastAPI running:
 
 ```bash
-curl --fail http://127.0.0.1:8000/stays
-curl --fail --get http://127.0.0.1:8000/stays \
+curl --fail http://127.0.0.1:8011/stays
+curl --fail --get http://127.0.0.1:8011/stays \
   --data-urlencode 'destination=Cape Town' \
   --data-urlencode 'guests=4' \
   --data-urlencode 'category=Coastal' \
   --data-urlencode 'min_price=1000' \
   --data-urlencode 'max_price=3000' \
   --data-urlencode 'sort=price-low'
-curl --fail http://127.0.0.1:8000/stays/atlantic-hideaway
+curl --fail http://127.0.0.1:8011/stays/atlantic-hideaway
 ```
 
 `GET /stays` returns a JSON array. Each stay has the same fields as the frontend `Stay` type, including JSON numbers for price, rating and bathrooms.
@@ -131,7 +133,7 @@ curl --fail http://127.0.0.1:8000/stays/atlantic-hideaway
 
 Price bounds must be finite, non-negative values with at most eight whole-number digits and two decimal places. The minimum cannot exceed the maximum. Blank destination searches and `All stays` do not restrict results. Search characters such as `%` and `_` are treated literally, not as SQL wildcards.
 
-`recommended` uses ID order, not a ranking algorithm. Price and rating sorts use ID as a tie-breaker. This differs from the frontend's current mock-array order. Saved-only filtering stays in the browser.
+`recommended` uses ID order, not a ranking algorithm. Price and rating sorts use ID as a tie-breaker. Saved-only filtering stays in the browser. Saved IDs are retained during loading, errors and filtered responses; a filtered result is not treated as the complete catalogue.
 
 An unmatched search returns `[]`. A missing stay ID returns 404. Invalid query parameters, including unknown parameter names, return 422.
 
@@ -155,27 +157,32 @@ Regular browsing does not call Gemini. Automated adapter tests mock provider res
 Browser
   |
   v
-React + Vite (127.0.0.1:5173)
-  |-- listings and local filters --> src/data/stays.ts + src/lib/stays.ts
-  |-- saved IDs -----------------> browser local storage
-  `-- optional /api/ai-search ---> Node Gemini adapter (127.0.0.1:8787)
+React + Vite (127.0.0.1:5180)
+  |-- /api/stays* ---------------> FastAPI (127.0.0.1:8011)
+  |                                  |-- GET /health
+  |                                  |-- SQL filters and sorting
+  |                                  `-- SQLAlchemy sessions
+  |                                           |
+  |                                           v
+  |                                  PostgreSQL 17 (127.0.0.1:5433)
+  |                                      ^                 ^
+  |                                      |                 |
+  |                                    Alembic          seed.py
+  |                                                        ^
+  |                                                        |
+  |                                                fixtures/stays.json
+  |-- saved IDs ----------------> browser local storage
+  `-- optional /api/ai-search ---> Node adapter (127.0.0.1:8787)
                                       `--> Gemini API, when enabled
-
-FastAPI (127.0.0.1:8000, not connected to the frontend yet)
-  |-- GET /health
-  |-- GET /stays and GET /stays/{id}
-  `-- SQLAlchemy engine/session setup
-              |
-              v
-      PostgreSQL 17 (127.0.0.1:5433)
-          ^                 ^
-          |                 |
-   Alembic migrations   seed.py <-- fixtures/stays.json
 ```
 
 - `src/types.ts`: frontend data contracts.
 - `src/components/`: browsing, property details and AI search UI.
-- `src/lib/stays.ts`: pure filtering, date, pricing and saved-data helpers.
+- `src/lib/stays.ts`: pure filtering, date, pricing, grouping and saved-data helpers. Listing search and sorting use SQL; saved-only filtering stays local.
+- `src/lib/stay-filters.ts`: shared categories and default filters, separate from test listings.
+- `src/lib/stays-api.ts`: request URLs, response validation, cancellation and timeouts.
+- `src/hooks/useStayResource.ts`: loading, retry and stale-response handling.
+- `src/data/stays.ts`: test-only listing fixture; not imported by production code.
 - `api/app/`: FastAPI app, environment settings, database sessions, Stay model, query validation and stay routes.
 - `api/migrations/`: versioned PostgreSQL schema changes.
 - `api/fixtures/stays.json`: the expanded 20-stay fixture.

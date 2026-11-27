@@ -8,12 +8,33 @@ import { AiSearch } from './AiSearch'
 import { PropertyCard } from './PropertyCard'
 import { SearchBar } from './SearchBar'
 import { StayDetails } from './StayDetails'
+import { StayRequestState } from './StayRequestState'
 
 const noop = () => {}
 const compact = (html: string) => html.replace(/\s|&nbsp;/g, '')
 
 // Static rendering checks markup and prop wiring; browser checks cover interactions.
 describe('Airbnb-inspired frontend components', () => {
+  it('announces loading without rendering a false missing-stay message', () => {
+    const html = renderToStaticMarkup(createElement(StayRequestState, {
+      loading: true, detail: true, onRetry: noop,
+    }))
+    expect(html).toContain('role="status"')
+    expect(html).toContain('aria-busy="true"')
+    expect(html).toContain('Loading stay...')
+    expect(html).not.toContain('Try again')
+    expect(html).not.toContain('couldn’t be found')
+  })
+
+  it('announces API errors and offers an explicit retry', () => {
+    const html = renderToStaticMarkup(createElement(StayRequestState, {
+      loading: false, message: 'Stays could not be loaded.', onRetry: noop,
+    }))
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('Stays could not be loaded.')
+    expect(html).toContain('Try again')
+  })
+
   it('labels the branding as an Airbnb clone rather than the official website', () => {
     const html = renderToStaticMarkup(createElement(Header, {
       savedCount: 0, savedOnly: false, onSaved: noop, onExplore: noop,

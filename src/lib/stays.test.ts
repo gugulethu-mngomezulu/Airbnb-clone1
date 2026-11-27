@@ -110,6 +110,10 @@ describe('calendar nights and demo estimates', () => {
 })
 
 describe('saved listing data', () => {
+  it('preserves saved IDs before the API catalogue is available', () => {
+    expect(parseSavedIds('["city-loft","forest-cabin","city-loft",null,3,""]')).toEqual(['city-loft', 'forest-cabin'])
+    expect(parseSavedIds(JSON.stringify(['x'.repeat(101)]))).toEqual([])
+  })
   const ids = stays.map((stay) => stay.id)
   it('handles missing, corrupt, and non-array storage', () => {
     for (const value of [null, '', 'broken', '{}', 'null', '4']) expect(parseSavedIds(value, ids)).toEqual([])
