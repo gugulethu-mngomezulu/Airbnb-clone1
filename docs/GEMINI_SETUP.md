@@ -1,10 +1,10 @@
-# Gemini AI stay finder — local setup and review
+# Gemini AI stay finder: local setup and review
 
 ## What it does
 
 A user describes a stay. Gemini extracts **destination, guest count, nightly ZAR budget, and category**. Both backend and frontend validate the response. The UI shows suggested filters; nothing changes until the user clicks **Apply AI filters**.
 
-The existing local filtering code selects from the 20 fictional listings. Gemini never supplies property IDs, prices, booking links, executable code, or verified availability.
+Confirmed filters are sent to FastAPI, which selects stays from PostgreSQL. Gemini never supplies property IDs, prices, booking links, executable code, or verified availability.
 
 Dates, amenities, quietness, accessibility, safety, distances and non-ZAR/total-trip budgets are not supported by AI filtering. The model is instructed to list unsupported requirements; the UI warns that they were not checked or applied. Extraction can still misinterpret a request, so review the proposed filters. Date-picker selections remain separate.
 
@@ -18,7 +18,7 @@ GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_ENABLED=true
 ```
 
-Use a model available to your Google AI Studio project. Do not paste a key into chat, screenshots, source files, browser code, or a `VITE_*` variable. Never commit `.env*` files. A local `.env.example` was initially created without a key, but it is also ignored under this project's no-`.env*`-commits rule. Use the documented example above when setting up a fresh clone.
+Use a model available to your Google AI Studio project. Do not paste a key into chat, screenshots, source files, browser code, or a `VITE_*` variable. Keep `.env` ignored. The committed `.env.example` contains placeholders only.
 
 Use one clean `GEMINI_ENABLED=true` assignment. If the setting is malformed, correct only that line locally and leave the key untouched. A one-session shell override also works, because shell variables take precedence; it does not repair the file for future restarts.
 
@@ -26,27 +26,29 @@ Setting `GEMINI_ENABLED=true` and clicking **Find with Gemini** permits a real p
 
 ## Run locally
 
-Use Node 22.12+; development was tested with Node 24.15.
+Use Node 22.12+. Follow the root [README](../README.md) to start PostgreSQL and FastAPI on port `8011` first.
 
 Terminal 1:
 
-```powershell
-cd C:\Users\User\Airbnb-clone1
+From the repository root:
+
+```bash
 npm run dev:api
 ```
 
 Terminal 2:
 
-```powershell
-cd C:\Users\User\Airbnb-clone1
+From the repository root:
+
+```bash
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. If the frontend is already running, reuse it rather than starting another copy. The API binds only to **127.0.0.1:8787**. Ports are fixed; development and preview fail rather than silently move to unsupported ports.
+Open http://127.0.0.1:5180. The Node adapter binds only to `127.0.0.1:8787`. Its origin allowlist accepts development port `5180` and preview port `4173` on localhost. Vite routes `/api/ai-search` to this adapter before the general `/api` route to FastAPI. Development and preview fail rather than silently move to unsupported ports.
 
 After editing `.env`, stop the API with Ctrl+C and run `npm run dev:api` again. Node's watch mode does not guarantee a reload for environment-file changes. Shell environment variables take precedence over the env file.
 
-To disable real calls, set `GEMINI_ENABLED=false` and restart the API. Regular search works without the API or a key.
+To disable real calls, set `GEMINI_ENABLED=false` and restart the Node adapter. Regular search does not need Gemini or the Node adapter, but it does need FastAPI and PostgreSQL.
 
 ## Model and API contract
 
@@ -92,7 +94,7 @@ Free-tier data handling can differ from paid-tier handling. Review Google's curr
 
 ## Code flow
 
-`AiSearch.tsx → requestAiSearch → Vite proxy → server/http.mjs → server/ai.mjs → Gemini → strict JSON validation → suggested filters → Apply AI filters → filterStays`
+`AiSearch.tsx → requestAiSearch → Vite proxy → server/http.mjs → server/ai.mjs → Gemini → strict JSON validation → suggested filters → Apply AI filters → /api/stays → FastAPI SQL query → PostgreSQL`
 
 - `server/index.mjs`: reads environment variables and binds the loopback server.
 - `server/http.mjs`: host/origin, body limits, timeouts and safe HTTP errors.
@@ -112,7 +114,7 @@ Free-tier data handling can differ from paid-tier handling. Review Google's curr
 
 ## Tests
 
-```powershell
+```bash
 npm run typecheck
 npm run lint
 npm test
@@ -120,7 +122,7 @@ npm run build
 git check-ignore .env
 ```
 
-Current automated result: **72 frontend/helper/static-render tests and 26 backend tests**, all mocked for the provider. Native HTTP tests call only ephemeral loopback servers, never Google.
+Automated provider tests use mocks. Native HTTP tests call only ephemeral loopback servers, never Google. Frontend API tests cover response validation, cancellation and timeouts. See the root README for Python database tests.
 
 Browser checks at 1280px and 390px:
 - Real local API forced disabled: setup error shown, zero provider calls.
@@ -134,11 +136,9 @@ Browser checks at 1280px and 390px:
 
 ## Security findings and deployment limits
 
-**High — historical potential Stripe credential:** Gitleaks found a Stripe access-token pattern in the original commit `19ef33d1`, `server.js:7`. Revoke/rotate it if real. It was deleted from the working tree, not from Git history.
+Potential credentials were found in the original Git commit. Rotate or revoke any real exposed keys and review provider restrictions. Removing files does not remove credentials from Git history or revoke them.
 
-**Review needed — historical Google API key:** the same commit's `firebase.js:5` contains a Google API-key pattern. Firebase browser API keys can be public identifiers; verify key restrictions, Firebase Security Rules and unintended API access. Do not assume deletion revoked it.
-
-No secret values were printed. Gitleaks found no leaks in current `src/` or `server/`. Both `.env` and `.env.example` are ignored and excluded from commits. Automated scanners are not proof that no secrets exist.
+No secret values were printed. `.env` is ignored; `.env.example` is committed with placeholders only. Automated scanners are not proof that no secrets exist.
 
 Existing moderate development-tool dependency findings and ESLint support warnings remain. No dependency upgrade or Git-history rewrite was performed.
 

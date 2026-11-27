@@ -1,8 +1,8 @@
-import type { Category, Stay } from '../types'
+import type { Stay } from '../types'
+
+export { categories, defaultFilters } from '../lib/stay-filters'
 
 const photo = (id: string) => `https://images.unsplash.com/${id}?auto=format&fit=crop&w=1000&q=85`
-
-export const categories: Category[] = ['All stays', 'Coastal', 'Cabins', 'City escapes', 'Countryside', 'Unique stays']
 
 // Fictional listings and example photography: not live inventory or verified reviews.
 export const stays: Stay[] = [
@@ -89,7 +89,3 @@ extraStays.forEach((stay) => stays.push({
   tag: 'Guest favourite', host: 'Alex',
   amenities: ['Wi-Fi', 'Kitchen', 'Free parking', 'Workspace'],
 }))
-
-export const defaultFilters = {
-  destination: '', guests: 1, maxPrice: 3500, category: 'All stays', savedOnly: false, sort: 'recommended',
-} as const

@@ -1,5 +1,5 @@
 import type { AiCriteria, AiResult, Filters } from '../types'
-import { categories, defaultFilters } from '../data/stays'
+import { categories, defaultFilters } from './stay-filters'
 
 const messages: Record<string, string> = {
   AI_NOT_CONFIGURED: 'AI is disabled. Add your key and enable Gemini in the server .env, then restart the API.',

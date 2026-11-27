@@ -8,24 +8,8 @@ from pydantic import ValidationError
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import dialect
 
-from app.config import Settings
-from app.database import create_db_engine
 from app.models import Stay
 from seed import FIXTURE_PATH, load_stays, main, seed_stays
-
-
-@pytest.fixture
-def seed_connection():
-    engine = create_db_engine(Settings())
-    try:
-        with engine.connect() as connection:
-            transaction = connection.begin()
-            try:
-                yield connection
-            finally:
-                transaction.rollback()
-    finally:
-        engine.dispose()
 
 
 def test_fixture_contains_all_twenty_stays_and_model_fields():
@@ -135,21 +119,21 @@ def test_main_rolls_back_and_disposes_engine_on_failure():
     engine.dispose.assert_called_once()
 
 
-def test_seed_is_idempotent_and_preserves_existing_edits(seed_connection):
+def test_seed_is_idempotent_and_preserves_existing_edits(db_connection):
     stay = load_stays()[0].model_copy(update={"id": f"seed-test-{uuid4().hex}"})
-    assert seed_stays(seed_connection, [stay]) == 1
-    seed_connection.execute(
+    assert seed_stays(db_connection, [stay]) == 1
+    db_connection.execute(
         update(Stay).where(Stay.id == stay.id).values(name="Existing local edit")
     )
-    assert seed_stays(seed_connection, [stay]) == 0
+    assert seed_stays(db_connection, [stay]) == 0
     assert (
-        seed_connection.scalar(
+        db_connection.scalar(
             select(func.count()).select_from(Stay).where(Stay.id == stay.id)
         )
         == 1
     )
     saved = (
-        seed_connection.execute(select(Stay.__table__).where(Stay.id == stay.id))
+        db_connection.execute(select(Stay.__table__).where(Stay.id == stay.id))
         .mappings()
         .one()
     )

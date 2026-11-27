@@ -71,12 +71,13 @@ export function getEstimate(price: number, nights: number) {
   return { subtotal, cleaning, service, total: subtotal + cleaning + service }
 }
 
-export function parseSavedIds(raw: string | null, knownIds: string[]): string[] {
+export function parseSavedIds(raw: string | null, knownIds?: readonly string[]): string[] {
   if (!raw) return []
   try {
     const value: unknown = JSON.parse(raw)
     if (!Array.isArray(value)) return []
-    return [...new Set(value.filter((id): id is string => typeof id === 'string' && knownIds.includes(id)))]
+    return [...new Set(value.filter((id): id is string => typeof id === 'string'
+      && id.length > 0 && id.length <= 100 && (!knownIds || knownIds.includes(id))))]
   } catch {
     return []
   }
