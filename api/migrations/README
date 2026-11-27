@@ -1,0 +1,14 @@
+PostgreSQL migrations for the stay API.
+
+Run commands from api/ with the virtual environment activated:
+
+    alembic upgrade head
+    alembic current
+    alembic check
+
+DATABASE_URL is read from the repository root .env or the environment.
+Do not put credentials in alembic.ini.
+
+The first migration enables pg_trgm for destination substring searches.
+Its downgrade removes the stays table but leaves pg_trgm installed because
+other tables in the same database may use it.
