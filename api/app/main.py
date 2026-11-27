@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from .config import Settings
 from .database import create_db_engine
+from .stays import router as stays_router
 
 
 @asynccontextmanager
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Stay API", lifespan=lifespan)
+app.include_router(stays_router)
 
 
 @app.get("/health")
