@@ -1,112 +1,97 @@
-# Frontend walkthrough and review lesson
+# Frontend and API walkthrough
 
-## One-line summary
+## Request flow
 
-Built a standalone, responsive React/TypeScript/Tailwind frontend so we can improve the stay-discovery experience before adding backend or LLM complexity.
+```text
+Search, category, guest, budget or sort change
+  -> src/App.tsx
+  -> buildStaysUrl
+  -> /api/stays through Vite
+  -> FastAPI query validation
+  -> SQLAlchemy WHERE and ORDER BY
+  -> PostgreSQL
+  -> validated JSON response
+  -> property cards
+```
 
-## Read the code in this order
+A property link uses hash navigation and fetches `/api/stays/{id}`. Vite removes the `/api` prefix before forwarding stay requests to FastAPI. The more specific `/api/ai-search` proxy remains separate.
 
-1. `index.html` loads `src/main.tsx`, which mounts React and imports the Tailwind-based stylesheet.
-2. `src/types.ts` defines the shape of a Stay and the allowed filter values. TypeScript flags inconsistent data during development.
-3. `src/data/stays.ts` supplies twenty fictional examples. There is no network inventory API.
-4. `src/App.tsx` coordinates search state, favourites, hash navigation and page selection.
-5. `src/lib/stays.ts` filters and sorts listings without changing the source array. The same module validates dates, calculates mock estimates and safely parses saved IDs.
-6. `src/components/SearchBar.tsx` keeps date edits pending until Apply. `PropertySection.tsx` groups homes into responsive, keyboard-focusable carousels with resize-aware arrow controls.
-7. `src/components/PropertyCard.tsx` displays a stay and has separate accessible links and save buttons.
-8. `src/components/StayDetails.tsx` shows a gallery, amenities and the demo estimate. The preview action does not reserve or charge anything.
-9. `src/styles.css` provides the visual design and responsive layouts. `Header`, `Icon` and `StayImage` share repeated UI behaviour.
+## Code map
 
-**Flow:** Search form → filter state → pure filtering helper → property cards → hash detail link → validated dates → fictional estimate.
+- `src/types.ts`: stay, filter and date contracts used by the UI.
+- `src/lib/stay-filters.ts`: categories and default filter values.
+- `src/lib/stays-api.ts`: URL encoding, JSON validation, safe errors and a ten-second request timeout.
+- `src/hooks/useStayResource.ts`: request state, cancellation and retries. Aborted responses cannot replace newer results.
+- `src/App.tsx`: applied filters, hash navigation, saved IDs and page selection.
+- `src/components/StayRequestState.tsx`: accessible loading and error messages with a retry action.
+- `api/app/schemas.py`: query validation and response fields.
+- `api/app/stays.py`: SQL filtering, sorting and detail lookup.
+- `api/app/database.py`: engine and request-session setup.
+- `api/migrations/`: versioned schema changes.
+- `api/seed.py`: validates the fixture and inserts missing stay IDs in one transaction.
 
-## When do we review?
+The runtime frontend does not import `src/data/stays.ts`. It remains a fixture for helper and component tests. The database seed uses `api/fixtures/stays.json`.
 
-- After a small working slice: easy to understand and cheaper to fix.
-- Before a commit: read every changed/new file and run the checks.
-- Before merging: another developer should review the change independently.
-- After adding an LLM in the future: also review backend key handling, privacy, prompt boundaries, cost limits and error handling. None of that integration exists yet.
+## Loading and failures
 
-## What did this review find?
+Listing and detail requests have separate state. Loading does not show an empty-result or missing-stay message. Failed requests show a safe error and an explicit retry action. A detail response with HTTP 404 shows the missing-stay page.
 
-### Fixed before handoff
+Requests use abort signals when the query or route changes. Responses are also checked against their request key, so a slow old search cannot replace the current results. API payloads are validated before rendering; numeric strings and malformed rows are rejected.
 
-- **Correctness/accessibility:** a normal `#main-content` link conflicted with hash routing. The skip link now focuses main content without navigating. Browser verification checks focus and the URL.
-- **Repository hygiene:** TypeScript emits a build-cache file. It is now ignored along with dependencies, build output and environment files.
-- **Compatibility (initial rebuild):** the package was kept CommonJS-compatible to avoid changing legacy server behaviour. The legacy server was later removed with approval; the existing working tool configuration remains unchanged.
+## Saved stays and estimates
 
-### Open findings
+Saved IDs use the existing browser local-storage key. IDs are retained while data loads, during failures and across filtered responses. A filtered response is not a complete catalogue and must not be used to discard other saved IDs.
 
-- **SHOULD FIX — development dependency tree:** npm audit reports seven moderate findings propagated through the TypeScript ESLint toolchain's minimatch dependency. npm also warns that ESLint 9 is unsupported. Resolve through a separately approved compatibility update, not `npm audit fix --force`. `npm audit --omit=dev` reports zero vulnerabilities; this does not certify the whole application as secure.
-- **NICE TO HAVE — `src/App.tsx`:** extract the browse/search sections into more components as requirements grow. Avoid a large refactor before the current design is approved.
+Saved-only filtering happens in the browser after SQL search results arrive. If local storage fails, saves remain in memory with a warning. Saves are not tied to an account or shared between devices.
 
-**Verdict:** Ready for local frontend feedback, with development-tool maintenance outstanding. Not approved for production or a public deployment.
+Date edits in the search dialog remain pending until Apply. Applied dates and guest choices pass to the detail view. The pure helpers in `src/lib/stays.ts` validate dates and calculate the fictional cleaning and service fees. Estimates do not check availability, create reservations or charge money.
 
-## Airbnb-inspired redesign follow-up
+## Optional AI search
 
-Inspected the live Airbnb.co.za homepage and used its search-first layout, rounded search, compact cards and destination rows as visual inspiration. The interface is labelled Airbnb Clone, with an explicit independent-demo disclosure. The internal saved-stays storage key is retained so favourites are not lost.
+The Node adapter extracts suggested filters, not listings. The user reviews and confirms those filters before they become a normal FastAPI search. Keys stay on the server.
 
-- Replaced the large serif/earth-tone hero with a coral, white and charcoal interface.
-- Expanded fictional inventory to 20 listings across three regional collections.
-- Search dates and guests pass into details. Both views use the same date validator and mock fee calculation.
-- Unavailable experiences/services are disabled, not fake working features. Hosting/currency controls explain the demo limits.
-- Review caught uncommitted date edits surviving cancellation; pending date state now commits only on Apply.
-- Review caught pluralisation for one-night card estimates; fixed and covered by a static-render regression test.
-- Card image links have an inset keyboard focus outline so rounded photo clipping cannot hide focus.
+The adapter accepts only the local development and preview origins. Provider access, model quality and billing have not been verified with a live call. Tests use mocks. See [Gemini setup](GEMINI_SETUP.md) for configuration and limits.
 
-Browser testing lesson: wait for React route updates and scroll completion before asserting. A retained carousel position after reload is valid browser behaviour, not evidence of a broken arrow. Reset the test position explicitly.
+## Tests
 
-## Tests and evidence
+From the repository root:
 
-Commands run:
-
-```powershell
+```bash
 npm run typecheck
 npm run lint
 npm test
 npm run build
-npm audit
-npm audit --omit=dev
-git diff --check
 ```
 
-- Typecheck, lint and production build pass.
-- 46 Vitest cases pass: search, combined filters, sorting, fixture IDs, dates, pricing and saved-ID parsing.
-- Browser checks at 1280px desktop and 390px mobile: search, categories, budget, guest capacity, saved views, reload persistence, details, invalid dates, estimate preview, unknown routes, browser Back and skip-link behaviour.
-- Simulated blocked local storage: the app warns and keeps favourites in memory.
-- Original listing photos loaded after scrolling; redesign desktop/mobile screenshots inspected. Images are illustrative and may repeat across fictional fixtures.
-- Final browser flow: no JavaScript errors or HTTP error responses. Two earlier development hot-reload requests were aborted during a page reload and subsequently succeeded.
-- An initial browser test expected the browse heading while the saved collection was active; the expected heading was corrected and the flow rerun. No app change was needed for that test expectation.
+From `api/`, with the virtual environment active:
 
-The browser checks were run through the available browser tool; they are not part of `npm test`. Other browser engines, screen-reader behaviour, real-device testing, production hosting are not verified. The removed legacy backend was not integration-tested.
+```bash
+python -m pytest
+ruff check .
+ruff format --check .
+alembic check
+```
 
-## Decisions and trade-offs
+Database-backed tests require the separate `TEST_DATABASE_URL` documented in the [README](../README.md). The test database name must end in `_test`. Fixtures run migrations there and roll back each test. Savepoints prevent a request-session commit from escaping the test transaction. Existing saved rows cause the suite to stop rather than delete data.
 
-- **Mock data first:** lets us design interactions without real bookings or API costs.
-- **Pure helpers:** filter/pricing functions are easy to test without rendering the entire app.
-- **Hash navigation:** avoids a new routing dependency and hosting rewrites. It is a simple demo choice, not the ideal final SEO architecture.
-- **Local storage:** convenient single-browser favourites, not authenticated cross-device storage.
-- **Illustrative external photos:** a quick visual starting point, not verified property photography. A local placeholder handles loading failures.
-- **Legacy code removed with approval:** 38 unused root-level files, including old auth/payment/backend code, were deleted after verifying that the new entry imports only the `src/` app. Git history is retained; no history rewrite, dependency change or feature-branch switch was performed. The old app is not migrated feature-for-feature.
+Browser checks at desktop width 1280 and mobile width 390 cover:
 
-## Optional Gemini follow-up
+- Search, combined filters, sorting and saved-only results.
+- Saved IDs across reloads and filtered responses.
+- Direct detail links, browser navigation and date transfer.
+- Matching card/detail price estimates.
+- Delayed responses, malformed data, errors, retries and 404s.
+- Old requests completing after a newer search.
+- Confirmed mocked AI filters reaching the real SQL endpoint.
+- Horizontal overflow, image loading and the keyboard skip link.
 
-The frontend-only phase is complete. A new loopback-only Gemini adapter and opt-in AI filter panel were subsequently added with approval. See `GEMINI_SETUP.md` for the current architecture, 98 mocked tests, setup and limits. No real Gemini request was made. The earlier frontend-only test counts and review notes above describe that phase.
+These browser checks are manual verification, not part of `npm test`. Other browser engines, real devices and a full screen-reader audit remain untested. HTTP 500/404 console entries are expected during failure-path tests; ordinary browsing showed no JavaScript errors.
 
-**Security follow-up:** a redacted Git-history scan found a potential Stripe token in original `server.js:7` and a Google API-key pattern in original `firebase.js:5`. They remain in commit `19ef33d1`; no values were printed. Rotate any real Stripe secret and review Google key restrictions/Firebase rules. No history rewrite was approved or attempted.
+## Known limitations
 
-## Stand-up explanation
-
-- Done: rebuilt the frontend with typed mock listings, filters, favourites and property details.
-- Next: configure and test the optional local Gemini finder after checking quota/billing; address development-tool maintenance and historical credential findings.
-- Blockers/limits: no live availability, accounts or payments; all listing content is fictional. Gemini access/extraction quality is unverified until an approved live test.
-
-## Questions a reviewer might ask
-
-**Why TypeScript?** It gives shared data contracts and catches mismatched props and invalid filter values early. It does not replace runtime validation.
-
-**Where does the LLM key live?** In the ignored server `.env`. The optional local backend reads it; React never receives it. AI stays disabled until explicitly enabled.
-
-**What happens when local storage fails?** Favourites still work in memory, with an explicit warning that they will not persist.
-
-**Does a price preview book a stay?** No. It calculates an example only, and explicitly says nothing has been reserved.
-
-**Are the tests enough for production?** No. They establish a local baseline; broader accessibility, cross-browser, backend, security and deployment checks remain separate work.
+- This is a stay-discovery demo, not a complete booking platform. Authentication, reservation storage, live availability and payments are not implemented.
+- The seven moderate npm advisories are in the development linting dependency tree. The production-only audit reported zero findings. Dependency maintenance needs a separately approved update.
+- The Python test client emits an HTTPX deprecation warning. Tests still pass.
+- Photos are external, illustrative and may repeat. A local placeholder handles image failures.
+- Potential credentials remain in the original Git history. Rotate or revoke any real exposed keys. Removing files does not revoke credentials; this work does not rewrite history.
+- Public deployment and production security have not been approved or verified.
