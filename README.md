@@ -15,12 +15,21 @@ This is an independent demo, not affiliated with Airbnb. Listings, ratings, host
 
 - Ubuntu or WSL Ubuntu with Bash.
 - Node.js 22.12+ and npm.
-- Python 3.14, which is the version tested locally, with `venv` and pip available.
+- Python 3.14 with `venv` and `ensurepip`, or the optional `uv` setup below.
 - Docker with the Compose plugin. For WSL, enable Ubuntu integration in Docker Desktop and confirm `docker compose version` works inside Ubuntu.
 
-Run the following commands from the repository root unless a step says otherwise.
+Ports `5433` (PostgreSQL), `8011` (FastAPI) and `5180` (Vite) must be available. Do not stop unrelated services to free a port.
 
 ## Local setup
+
+If you do not have a checkout yet:
+
+```bash
+git clone https://github.com/gugulethu-mngomezulu/Airbnb-clone1.git
+cd Airbnb-clone1
+```
+
+Run the remaining commands from the repository root unless a step says otherwise.
 
 ### 1. Configure the environment
 
@@ -54,6 +63,17 @@ The first migration enables `pg_trgm` for substring-search indexing. The databas
 
 ```bash
 python3 -m venv api/.venv
+```
+
+If your Python installation lacks `ensurepip` and you already have `uv`, use this command instead to create the environment with pip included:
+
+```bash
+uv venv --python 3.14 --seed api/.venv
+```
+
+Then activate it and install dependencies:
+
+```bash
 source api/.venv/bin/activate
 python -m pip install -r api/requirements-dev.txt
 ```
@@ -224,6 +244,21 @@ The database-backed tests require an explicit `TEST_DATABASE_URL`; they do not f
 Each database test runs inside an outer transaction that is rolled back afterward. API request sessions use savepoints, so even a session commit cannot persist test data. Seed and endpoint integration tests share this setup. The development database and its seeded stays are not used by these tests. `alembic check` in the command block above still checks the application database.
 
 At desktop and mobile widths, check search, combined filters, sorting, saved-stay persistence, property navigation, date validation, keyboard access and the browser console. No reservation is created by the price estimate.
+
+## Continuous integration
+
+[CI](.github/workflows/ci.yml) runs on pushes and pull requests targeting `main`:
+
+- Node 22 installs the lockfile and runs typecheck, lint, frontend/Node tests and the build.
+- Python 3.14 runs Ruff, Alembic migrations, schema checks and pytest against a disposable PostgreSQL 17 service.
+
+Actions are pinned to commit hashes and use read-only repository permissions. CI does not need application secrets, make live AI calls or deploy the project.
+
+## Scope and review
+
+The backend serves stay discovery. Accounts, reservation storage, live availability and payments are separate future work. Saved stays are browser-local, and price estimates do not create bookings.
+
+See [the walkthrough](docs/FRONTEND_REVIEW.md) for request flow, browser checks and known limitations.
 
 ## Security notes
 
